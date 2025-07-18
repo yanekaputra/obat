@@ -1,0 +1,205 @@
+<?php
+/**
+ * File: auth_check.php
+ * Fungsi: Proteksi halaman dan validasi session
+ * Include file ini di setiap halaman yang memerlukan authentication
+ * Compatible dengan conf.php yang sudah ada
+ */
+
+// Mulai session jika belum dimulai
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+/**
+ * Fungsi untuk memeriksa apakah user sudah login
+ */
+function isLoggedIn() {
+    return isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true;
+}
+
+/**
+ * Fungsi untuk memeriksa timeout session
+ */
+function isSessionValid() {
+    if (!isset($_SESSION['login_time'])) {
+        return false;
+    }
+    
+    // Session timeout: 8 jam (28800 detik)
+    $session_timeout = 28800;
+    $current_time = time();
+    $login_time = $_SESSION['login_time'];
+    
+    if (($current_time - $login_time) > $session_timeout) {
+        return false;
+    }
+    
+    return true;
+}
+
+/**
+ * Fungsi untuk memeriksa jabatan user
+ */
+function hasValidRole() {
+    if (!isset($_SESSION['kd_jbtn'])) {
+        return false;
+    }
+    
+    // Allow APT (Apoteker) dan ADM (Administrator)
+    $allowed_roles = ['APT', 'ADM'];
+    return in_array($_SESSION['kd_jbtn'], $allowed_roles);
+}
+
+/**
+ * Fungsi untuk redirect ke login
+ */
+function redirectToLogin($message = '') {
+    $redirect_url = 'index.php';
+    if (!empty($message)) {
+        $redirect_url = 'login.php?error=' . urlencode($message);
+    }
+    header('Location: ' . $redirect_url);
+    exit();
+}
+
+/**
+ * Fungsi untuk logout dan hapus session
+ */
+function logout($redirect = true) {
+    if (session_status() == PHP_SESSION_ACTIVE) {
+        // Log logout jika tabel ada dan conf.php sudah di-include
+        if (isset($_SESSION['user_id']) && function_exists('bukaquery')) {
+            $user_id = $_SESSION['user_id'];
+            $log_query = "INSERT INTO log_logout (user_id, logout_time, ip_address) 
+                         VALUES ('$user_id', NOW(), '" . $_SERVER['REMOTE_ADDR'] . "')";
+            @bukaquery($log_query); // @ untuk suppress error jika tabel tidak ada
+        }
+        
+        // Destroy session
+        $_SESSION = array();
+        
+        if (isset($_COOKIE[session_name()])) {
+            setcookie(session_name(), '', time()-42000, '/');
+        }
+        
+        session_destroy();
+    }
+    
+    if ($redirect) {
+        header('Location: index.php?logged_out=1');
+        exit();
+    }
+}
+
+/**
+ * Fungsi untuk update activity time
+ */
+function updateActivity() {
+    $_SESSION['last_activity'] = time();
+}
+
+/**
+ * Main authentication check
+ */
+function checkAuthentication() {
+    // Cek apakah user login
+    if (!isLoggedIn()) {
+        redirectToLogin('Silakan login terlebih dahulu');
+    }
+    
+    // Cek validitas session
+    if (!isSessionValid()) {
+        logout(false);
+        redirectToLogin('Session telah berakhir, silakan login kembali');
+    }
+    
+    // Cek role/jabatan
+    if (!hasValidRole()) {
+        logout(false);
+        redirectToLogin('Akses ditolak! Hanya apoteker yang dapat mengakses sistem ini');
+    }
+    
+    // Update activity time
+    updateActivity();
+    
+    return true;
+}
+
+/**
+ * Fungsi untuk mendapatkan info user yang login
+ */
+function getCurrentUser() {
+    return array(
+        'user_id' => $_SESSION['user_id'] ?? '',
+        'username' => $_SESSION['username'] ?? '',
+        'jabatan' => $_SESSION['jabatan'] ?? '',
+        'kd_jbtn' => $_SESSION['kd_jbtn'] ?? '',
+        'login_time' => $_SESSION['login_time'] ?? '',
+        'last_activity' => $_SESSION['last_activity'] ?? ''
+    );
+}
+
+/**
+ * Fungsi untuk mendapatkan remaining session time
+ */
+function getSessionTimeRemaining() {
+    if (!isset($_SESSION['login_time'])) {
+        return 0;
+    }
+    
+    $session_timeout = 28800; // 8 jam
+    $elapsed = time() - $_SESSION['login_time'];
+    $remaining = $session_timeout - $elapsed;
+    
+    return max(0, $remaining);
+}
+
+/**
+ * Fungsi untuk format waktu remaining
+ */
+function formatTimeRemaining($seconds) {
+    $hours = floor($seconds / 3600);
+    $minutes = floor(($seconds % 3600) / 60);
+    
+    if ($hours > 0) {
+        return sprintf('%d jam %d menit', $hours, $minutes);
+    } else {
+        return sprintf('%d menit', $minutes);
+    }
+}
+
+/**
+ * Fungsi untuk generate CSRF token
+ */
+function generateCSRFToken() {
+    if (!isset($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Fungsi untuk validasi CSRF token
+ */
+function validateCSRFToken($token) {
+    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+}
+
+// Auto-check authentication jika file di-include dan bukan halaman login
+if (basename($_SERVER['PHP_SELF']) !== 'login.php') {
+    // Include conf.php jika belum di-include
+    if (!function_exists('bukaquery')) {
+        require_once 'conf.php';
+    }
+    
+    checkAuthentication();
+}
+
+// Set security headers
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+
+?>

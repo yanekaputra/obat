@@ -1,6 +1,43 @@
 <?php
+ob_start();
+
+// Include session config SEBELUM session_start()
+
+require_once 'session_config.php';
+session_start();
+
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+    header('Location: index.php');
+    exit;
+}
+
+
 require_once 'conf.php';
-//require_once 'auth_check.php';  // Proteksi halaman
+
+
+error_log("obat.php - Session data: " . print_r($_SESSION, true));
+
+
+
+// Handle logout
+if (isset($_GET['logout'])) {
+    logout();
+}
+
+function logout() {
+    // Hancurkan semua data session
+    $_SESSION = array();
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000,
+            $params["path"], $params["domain"],
+            $params["secure"], $params["httponly"]
+        );
+    }
+    session_destroy();
+    header("Location: index.php");
+    exit;
+}
 
 // Function untuk mendapatkan data resep
 function getResepData($status = null, $search = '', $tanggal_dari = '', $tanggal_sampai = '', $kategori = '', $golongan = '') {
@@ -210,11 +247,15 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             <div class="col-12">
                 <!-- Header -->
                 <div class="card shadow-sm mb-4">
-                    <div class="card-header ">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h4 class="mb-0">
                             <i class="fas fa-prescription-bottle-alt me-2"></i>
                             Data Resep Obat - Rawat Jalan & Rawat Inap
                         </h4>
+                        <a href="obat.php?logout" class="btn btn-danger">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+
                     </div>
                 </div>
 

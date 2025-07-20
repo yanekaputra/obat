@@ -2,7 +2,6 @@
 ob_start();
 
 // Include session config SEBELUM session_start()
-
 require_once 'session_config.php';
 session_start();
 
@@ -11,13 +10,9 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     exit;
 }
 
-
 require_once 'conf.php';
 
-
 error_log("obat.php - Session data: " . print_r($_SESSION, true));
-
-
 
 // Handle logout
 if (isset($_GET['logout'])) {
@@ -156,13 +151,26 @@ function getTotalResep($no_resep) {
     return $row['total'] ? $row['total'] : 0;
 }
 
-// Ambil parameter filter
+// ===== MODIFIKASI: Set default tanggal ke hari ini =====
+$today = date('Y-m-d');
+
+// Ambil parameter filter dengan default tanggal hari ini
 $filter_status = isset($_GET['status']) ? $_GET['status'] : '';
 $search = isset($_GET['search']) ? $_GET['search'] : '';
-$tanggal_dari = isset($_GET['tanggal_dari']) ? $_GET['tanggal_dari'] : '';
-$tanggal_sampai = isset($_GET['tanggal_sampai']) ? $_GET['tanggal_sampai'] : '';
+
+// MODIFIKASI: Set default tanggal ke hari ini jika tidak ada parameter
+$tanggal_dari = isset($_GET['tanggal_dari']) && $_GET['tanggal_dari'] != '' ? $_GET['tanggal_dari'] : $today;
+$tanggal_sampai = isset($_GET['tanggal_sampai']) && $_GET['tanggal_sampai'] != '' ? $_GET['tanggal_sampai'] : $today;
+
 $filter_kategori = isset($_GET['kategori']) ? $_GET['kategori'] : '';
 $filter_golongan = isset($_GET['golongan']) ? $_GET['golongan'] : '';
+
+// Check jika ada parameter "show_all" untuk menampilkan semua data
+$show_all = isset($_GET['show_all']) ? true : false;
+if ($show_all) {
+    $tanggal_dari = '';
+    $tanggal_sampai = '';
+}
 
 // Ambil data untuk dropdown
 $kategori_obat = getKategoriObat();
@@ -239,6 +247,55 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             transform: scale(1.05);
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
+
+        /* TAMBAHAN: Style untuk info tanggal */
+        .date-info {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border: 1px solid #2196f3;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+        
+        .date-info .date-icon {
+            color: #1976d2;
+            font-size: 1.2em;
+        }
+        
+        .quick-date-buttons {
+            margin-top: 10px;
+        }
+        
+        .quick-date-buttons .btn {
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+        
+        .alert-daily {
+            background: linear-gradient(135deg, #fff3cd 0%, #fef3bd 100%);
+            border: 1px solid #ffc107;
+            color: #856404;
+        }
+
+        /* Export dropdown styling */
+        .btn-group .dropdown-menu {
+            min-width: 200px;
+        }
+
+        .btn-group .dropdown-item {
+            padding: 8px 16px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-group .dropdown-item:hover {
+            background-color: #f8f9fa;
+            transform: translateX(5px);
+        }
+
+        .btn-group .dropdown-item i {
+            width: 20px;
+            margin-right: 8px;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -252,12 +309,71 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                             <i class="fas fa-prescription-bottle-alt me-2"></i>
                             Data Resep Obat - Rawat Jalan & Rawat Inap
                         </h4>
-                        <a href="obat.php?logout" class="btn btn-danger">
-                            <i class="fas fa-sign-out-alt"></i> Logout
-                        </a>
-
+                        <div>
+                            <a href="data_obat.php" class="btn btn-outline-light me-2">
+                                <i class="fas fa-pills"></i> Data Obat
+                            </a>
+                            <a href="piutang.php" class="btn btn-outline-light me-2">
+                                <i class="fas fa-file-invoice-dollar"></i> Data Piutang
+                            </a>
+                            <a href="obat.php?logout" class="btn btn-danger">
+                                <i class="fas fa-sign-out-alt"></i> Logout
+                            </a>
+                        </div>
                     </div>
                 </div>
+
+                <!-- TAMBAHAN: Info Tanggal yang Ditampilkan -->
+                <div class="date-info">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-calendar-day date-icon me-2"></i>
+                            <strong>
+                                <?php if ($show_all): ?>
+                                    Menampilkan Semua Data Resep
+                                <?php elseif ($tanggal_dari == $tanggal_sampai): ?>
+                                    Data Resep Hari Ini: <?= konversiTanggal($tanggal_dari) ?>
+                                <?php else: ?>
+                                    Data Resep: <?= konversiTanggal($tanggal_dari) ?> s/d <?= konversiTanggal($tanggal_sampai) ?>
+                                <?php endif; ?>
+                            </strong>
+                        </div>
+                        <div class="quick-date-buttons">
+                            <?php if ($show_all || ($tanggal_dari != $today || $tanggal_sampai != $today)): ?>
+                            <a href="obat.php" class="btn btn-sm btn-primary">
+                                <i class="fas fa-calendar-day"></i> Hari Ini
+                            </a>
+                            <?php endif; ?>
+                            
+                            <a href="obat.php?tanggal_dari=<?= date('Y-m-d', strtotime('-1 days')) ?>&tanggal_sampai=<?= date('Y-m-d', strtotime('-1 days')) ?>" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-calendar-minus"></i> Kemarin
+                            </a>
+                            
+                            <a href="obat.php?tanggal_dari=<?= date('Y-m-d', strtotime('monday this week')) ?>&tanggal_sampai=<?= date('Y-m-d') ?>" class="btn btn-sm btn-outline-info">
+                                <i class="fas fa-calendar-week"></i> Minggu Ini
+                            </a>
+                            
+                            <a href="obat.php?tanggal_dari=<?= date('Y-m-01') ?>&tanggal_sampai=<?= date('Y-m-d') ?>" class="btn btn-sm btn-outline-success">
+                                <i class="fas fa-calendar-alt"></i> Bulan Ini
+                            </a>
+                            
+                            <?php if (!$show_all): ?>
+                            <a href="obat.php?show_all=1" class="btn btn-sm btn-warning">
+                                <i class="fas fa-list"></i> Semua Data
+                            </a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MODIFIKASI: Alert untuk mode tampilan harian -->
+                <?php if (!$show_all && $tanggal_dari == $today && $tanggal_sampai == $today): ?>
+                <div class="alert alert-daily" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Mode Tampilan Harian:</strong> Sistem menampilkan data resep hari ini secara default. 
+                    Gunakan filter tanggal atau tombol di atas untuk melihat data periode lain.
+                </div>
+                <?php endif; ?>
 
                 <!-- Filter Section -->
                 <div class="filter-section">
@@ -321,11 +437,21 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                     <i class="fas fa-filter"></i> Filter Data
                                 </button>
                                 <a href="?" class="btn btn-secondary">
-                                    <i class="fas fa-refresh"></i> Reset Filter
+                                    <i class="fas fa-refresh"></i> Reset ke Hari Ini
                                 </a>
-                                <button type="button" class="btn btn-info" onclick="exportData()">
-                                    <i class="fas fa-download"></i> Export Excel
-                                </button>
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-info dropdown-toggle" data-bs-toggle="dropdown">
+                                        <i class="fas fa-download"></i> Export Data
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="javascript:exportData('excel')">
+                                            <i class="fas fa-file-excel text-success"></i> Export Excel (.xls)
+                                        </a></li>
+                                        <li><a class="dropdown-item" href="javascript:exportData('csv')">
+                                            <i class="fas fa-file-csv text-primary"></i> Export CSV (.csv)
+                                        </a></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </form>
@@ -473,7 +599,13 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                     <tr>
                                         <td colspan="9" class="text-center py-4">
                                             <i class="fas fa-search fa-2x text-muted mb-2"></i><br>
-                                            <span class="text-muted">Tidak ada data resep yang ditemukan</span>
+                                            <span class="text-muted">
+                                                <?php if (!$show_all && $tanggal_dari == $today): ?>
+                                                    Tidak ada resep obat hari ini
+                                                <?php else: ?>
+                                                    Tidak ada data resep yang ditemukan
+                                                <?php endif; ?>
+                                            </span>
                                         </td>
                                     </tr>
                                     <?php } ?>
@@ -612,14 +744,22 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             window.open('print_resep.php?no_resep=' + no_resep, '_blank');
         }
         
-        // Export data function
-        function exportData() {
+        // Export data function dengan pilihan format
+        function exportData(format = 'csv') {
             // Ambil parameter filter saat ini
             const params = new URLSearchParams(window.location.search);
-            params.set('export', 'excel');
+            params.set('export', format);
+            
+            // Tentukan file export berdasarkan format
+            let exportFile = '';
+            if (format === 'excel') {
+                exportFile = 'export_resep.php';
+            } else {
+                exportFile = 'export_resep_simple.php';
+            }
             
             // Redirect ke halaman export
-            window.open('export_resep.php?' + params.toString(), '_blank');
+            window.open(exportFile + '?' + params.toString(), '_blank');
         }
         
         // Quick filter functions
@@ -637,6 +777,56 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             window.location.href = url.toString();
         }
         
+        // TAMBAHAN: Quick date navigation functions
+        function goToToday() {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('tanggal_dari');
+            url.searchParams.delete('tanggal_sampai');
+            url.searchParams.delete('show_all');
+            window.location.href = url.toString();
+        }
+        
+        function goToYesterday() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateStr = yesterday.toISOString().split('T')[0];
+            
+            const url = new URL(window.location.href);
+            url.searchParams.set('tanggal_dari', dateStr);
+            url.searchParams.set('tanggal_sampai', dateStr);
+            url.searchParams.delete('show_all');
+            window.location.href = url.toString();
+        }
+        
+        function goToThisWeek() {
+            const today = new Date();
+            const monday = new Date(today.setDate(today.getDate() - today.getDay() + 1));
+            const now = new Date();
+            
+            const mondayStr = monday.toISOString().split('T')[0];
+            const todayStr = now.toISOString().split('T')[0];
+            
+            const url = new URL(window.location.href);
+            url.searchParams.set('tanggal_dari', mondayStr);
+            url.searchParams.set('tanggal_sampai', todayStr);
+            url.searchParams.delete('show_all');
+            window.location.href = url.toString();
+        }
+        
+        function goToThisMonth() {
+            const today = new Date();
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            
+            const firstDayStr = firstDay.toISOString().split('T')[0];
+            const todayStr = today.toISOString().split('T')[0];
+            
+            const url = new URL(window.location.href);
+            url.searchParams.set('tanggal_dari', firstDayStr);
+            url.searchParams.set('tanggal_sampai', todayStr);
+            url.searchParams.delete('show_all');
+            window.location.href = url.toString();
+        }
+        
         // Show tooltip for long text
         document.addEventListener('DOMContentLoaded', function() {
             // Initialize tooltips
@@ -651,7 +841,61 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             
             // Debug: Check if tooltips are initialized
             console.log('Tooltips initialized:', tooltipList.length);
+            
+            // TAMBAHAN: Display current date info in console
+            const today = new Date().toISOString().split('T')[0];
+            console.log('Current date:', today);
+            console.log('Display mode: Daily view active');
         });
+        
+        // TAMBAHAN: Keyboard shortcuts untuk navigasi cepat
+        document.addEventListener('keydown', function(e) {
+            // Ctrl + T = Today
+            if (e.ctrlKey && e.key === 't') {
+                e.preventDefault();
+                goToToday();
+            }
+            
+            // Ctrl + Y = Yesterday  
+            if (e.ctrlKey && e.key === 'y') {
+                e.preventDefault();
+                goToYesterday();
+            }
+            
+            // Ctrl + W = This Week
+            if (e.ctrlKey && e.key === 'w') {
+                e.preventDefault();
+                goToThisWeek();
+            }
+            
+            // Ctrl + M = This Month
+            if (e.ctrlKey && e.key === 'm') {
+                e.preventDefault();
+                goToThisMonth();
+            }
+        });
+        
+        // TAMBAHAN: Auto-refresh dengan konfirmasi jika ada perubahan data
+        let initialDataCount = <?= mysqli_num_rows($resep_data) ?>;
+        
+        function smartRefresh() {
+            // Check if user has made any filter changes
+            const hasFilters = window.location.search.includes('status=') || 
+                              window.location.search.includes('search=') || 
+                              window.location.search.includes('kategori=') || 
+                              window.location.search.includes('golongan=');
+            
+            if (!hasFilters) {
+                // Only auto-refresh if no custom filters are applied
+                location.reload();
+            } else {
+                // Show notification that refresh is available
+                console.log('Auto-refresh paused due to active filters. Press F5 to refresh manually.');
+            }
+        }
+        
+        // Update refresh timer
+        setTimeout(smartRefresh, 300000); // 5 minutes
     </script>
 </body>
 </html>

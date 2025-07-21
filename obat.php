@@ -34,8 +34,14 @@ function logout() {
     exit;
 }
 
-// Function untuk mendapatkan data resep
-function getResepData($status = null, $search = '', $tanggal_dari = '', $tanggal_sampai = '', $kategori = '', $golongan = '') {
+// Function untuk mendapatkan daftar dokter aktif
+function getDokterList() {
+    $sql = "SELECT DISTINCT kd_dokter, nm_dokter FROM dokter WHERE status = '1' ORDER BY nm_dokter";
+    return bukaquery($sql);
+}
+
+// Function untuk mendapatkan total data resep (untuk statistik)
+function getTotalResepCount($status = null, $search = '', $tanggal_dari = '', $tanggal_sampai = '', $kategori = '', $golongan = '', $dokter = '') {
     $whereClause = "WHERE 1=1";
     
     if ($status) {
@@ -44,13 +50,72 @@ function getResepData($status = null, $search = '', $tanggal_dari = '', $tanggal
     
     if ($search) {
         $search = validTeks($search);
-        $whereClause .= " AND (ro.no_resep LIKE '%$search%' OR d.nm_dokter LIKE '%$search%' OR db.nama_brng LIKE '%$search%')";
+        $whereClause .= " AND (ro.no_resep LIKE '%$search%' OR d.nm_dokter LIKE '%$search%' OR rp.p_jawab LIKE '%$search%' OR rp.no_rkm_medis LIKE '%$search%')";
     }
     
     if ($tanggal_dari && $tanggal_sampai) {
         $tanggal_dari = validTeks($tanggal_dari);
         $tanggal_sampai = validTeks($tanggal_sampai);
         $whereClause .= " AND ro.tgl_peresepan BETWEEN '$tanggal_dari' AND '$tanggal_sampai'";
+    }
+    
+    if ($dokter) {
+        $dokter = validTeks($dokter);
+        $whereClause .= " AND ro.kd_dokter = '$dokter'";
+    }
+    
+    if ($kategori) {
+        $kategori = validTeks($kategori);
+        $whereClause .= " AND EXISTS (
+            SELECT 1 FROM resep_dokter rd2 
+            LEFT JOIN databarang db2 ON rd2.kode_brng = db2.kode_brng 
+            WHERE rd2.no_resep = ro.no_resep AND db2.kode_kategori = '$kategori'
+        )";
+    }
+    
+    if ($golongan) {
+        $golongan = validTeks($golongan);
+        $whereClause .= " AND EXISTS (
+            SELECT 1 FROM resep_dokter rd3 
+            LEFT JOIN databarang db3 ON rd3.kode_brng = db3.kode_brng 
+            WHERE rd3.no_resep = ro.no_resep AND db3.kode_golongan = '$golongan'
+        )";
+    }
+    
+    $sql = "SELECT COUNT(DISTINCT ro.no_resep) as total
+            FROM resep_obat ro
+            LEFT JOIN dokter d ON ro.kd_dokter = d.kd_dokter
+            LEFT JOIN reg_periksa rp ON ro.no_rawat = rp.no_rawat
+            LEFT JOIN kamar_inap ki ON ro.no_rawat = ki.no_rawat
+            $whereClause";
+    
+    $result = bukaquery($sql);
+    $row = mysqli_fetch_array($result);
+    return $row['total'];
+}
+
+// Function untuk mendapatkan data resep dengan pagination
+function getResepData($status = null, $search = '', $tanggal_dari = '', $tanggal_sampai = '', $kategori = '', $golongan = '', $dokter = '', $limit = 25, $offset = 0) {
+    $whereClause = "WHERE 1=1";
+    
+    if ($status) {
+        $whereClause .= " AND ro.status = '" . validTeks($status) . "'";
+    }
+    
+    if ($search) {
+        $search = validTeks($search);
+        $whereClause .= " AND (ro.no_resep LIKE '%$search%' OR d.nm_dokter LIKE '%$search%' OR rp.p_jawab LIKE '%$search%' OR rp.no_rkm_medis LIKE '%$search%')";
+    }
+    
+    if ($tanggal_dari && $tanggal_sampai) {
+        $tanggal_dari = validTeks($tanggal_dari);
+        $tanggal_sampai = validTeks($tanggal_sampai);
+        $whereClause .= " AND ro.tgl_peresepan BETWEEN '$tanggal_dari' AND '$tanggal_sampai'";
+    }
+    
+    if ($dokter) {
+        $dokter = validTeks($dokter);
+        $whereClause .= " AND ro.kd_dokter = '$dokter'";
     }
     
     if ($kategori) {
@@ -86,7 +151,6 @@ function getResepData($status = null, $search = '', $tanggal_dari = '', $tanggal
                 rp.no_reg,
                 rp.no_rkm_medis,
                 rp.p_jawab,
-                -- Perbaikan: Gunakan status dari resep_obat untuk menentukan jenis rawat
                 CASE 
                     WHEN ro.status = 'ranap' THEN 'Rawat Inap'
                     WHEN ro.status = 'ralan' THEN 'Rawat Jalan'
@@ -99,9 +163,84 @@ function getResepData($status = null, $search = '', $tanggal_dari = '', $tanggal
             LEFT JOIN kamar_inap ki ON ro.no_rawat = ki.no_rawat
             $whereClause
             GROUP BY ro.no_resep
-            ORDER BY ro.tgl_peresepan DESC, ro.jam_peresepan DESC";
+            ORDER BY ro.tgl_peresepan DESC, ro.jam_peresepan DESC
+            LIMIT $limit OFFSET $offset";
     
     return bukaquery($sql);
+}
+
+// Function untuk mendapatkan statistik detail
+function getDetailStatistics($status = null, $search = '', $tanggal_dari = '', $tanggal_sampai = '', $kategori = '', $golongan = '', $dokter = '') {
+    $whereClause = "WHERE 1=1";
+    
+    if ($status) {
+        $whereClause .= " AND ro.status = '" . validTeks($status) . "'";
+    }
+    
+    if ($search) {
+        $search = validTeks($search);
+        $whereClause .= " AND (ro.no_resep LIKE '%$search%' OR d.nm_dokter LIKE '%$search%' OR rp.p_jawab LIKE '%$search%' OR rp.no_rkm_medis LIKE '%$search%')";
+    }
+    
+    if ($tanggal_dari && $tanggal_sampai) {
+        $tanggal_dari = validTeks($tanggal_dari);
+        $tanggal_sampai = validTeks($tanggal_sampai);
+        $whereClause .= " AND ro.tgl_peresepan BETWEEN '$tanggal_dari' AND '$tanggal_sampai'";
+    }
+    
+    if ($dokter) {
+        $dokter = validTeks($dokter);
+        $whereClause .= " AND ro.kd_dokter = '$dokter'";
+    }
+    
+    if ($kategori) {
+        $kategori = validTeks($kategori);
+        $whereClause .= " AND EXISTS (
+            SELECT 1 FROM resep_dokter rd2 
+            LEFT JOIN databarang db2 ON rd2.kode_brng = db2.kode_brng 
+            WHERE rd2.no_resep = ro.no_resep AND db2.kode_kategori = '$kategori'
+        )";
+    }
+    
+    if ($golongan) {
+        $golongan = validTeks($golongan);
+        $whereClause .= " AND EXISTS (
+            SELECT 1 FROM resep_dokter rd3 
+            LEFT JOIN databarang db3 ON rd3.kode_brng = db3.kode_brng 
+            WHERE rd3.no_resep = ro.no_resep AND db3.kode_golongan = '$golongan'
+        )";
+    }
+    
+    $sql = "SELECT 
+                COUNT(DISTINCT ro.no_resep) as total_resep,
+                COUNT(DISTINCT CASE 
+                    WHEN ro.status = 'ralan' OR (ro.status IS NULL AND ki.no_rawat IS NULL) OR (ro.status NOT IN ('ralan','ranap') AND ki.no_rawat IS NULL)
+                    THEN ro.no_resep 
+                    ELSE NULL 
+                END) as total_ralan,
+                COUNT(DISTINCT CASE 
+                    WHEN ro.status = 'ranap' OR (ro.status IS NULL AND ki.no_rawat IS NOT NULL) OR (ro.status NOT IN ('ralan','ranap') AND ki.no_rawat IS NOT NULL)
+                    THEN ro.no_resep 
+                    ELSE NULL 
+                END) as total_ranap,
+                COUNT(DISTINCT CASE 
+                    WHEN ro.tgl_penyerahan != '0000-00-00' AND ro.tgl_penyerahan IS NOT NULL AND ro.tgl_penyerahan != ''
+                    THEN ro.no_resep 
+                    ELSE NULL 
+                END) as total_diserahkan,
+                COUNT(DISTINCT CASE 
+                    WHEN ro.tgl_penyerahan = '0000-00-00' OR ro.tgl_penyerahan IS NULL OR ro.tgl_penyerahan = ''
+                    THEN ro.no_resep 
+                    ELSE NULL 
+                END) as total_menunggu
+            FROM resep_obat ro
+            LEFT JOIN dokter d ON ro.kd_dokter = d.kd_dokter
+            LEFT JOIN reg_periksa rp ON ro.no_rawat = rp.no_rawat
+            LEFT JOIN kamar_inap ki ON ro.no_rawat = ki.no_rawat
+            $whereClause";
+    
+    $result = bukaquery($sql);
+    return mysqli_fetch_array($result);
 }
 
 // Function untuk mendapatkan daftar kategori obat
@@ -151,19 +290,32 @@ function getTotalResep($no_resep) {
     return $row['total'] ? $row['total'] : 0;
 }
 
-// ===== MODIFIKASI: Set default tanggal ke hari ini =====
+// ===== PAGINATION SETUP =====
 $today = date('Y-m-d');
 
-// Ambil parameter filter dengan default tanggal hari ini
+// Ambil parameter filter
 $filter_status = isset($_GET['status']) ? $_GET['status'] : '';
 $search = isset($_GET['search']) ? $_GET['search'] : '';
-
-// MODIFIKASI: Set default tanggal ke hari ini jika tidak ada parameter
 $tanggal_dari = isset($_GET['tanggal_dari']) && $_GET['tanggal_dari'] != '' ? $_GET['tanggal_dari'] : $today;
 $tanggal_sampai = isset($_GET['tanggal_sampai']) && $_GET['tanggal_sampai'] != '' ? $_GET['tanggal_sampai'] : $today;
-
 $filter_kategori = isset($_GET['kategori']) ? $_GET['kategori'] : '';
 $filter_golongan = isset($_GET['golongan']) ? $_GET['golongan'] : '';
+$filter_dokter = isset($_GET['dokter']) ? $_GET['dokter'] : '';
+
+// Pagination parameters
+$items_per_page = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 25;
+$current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+
+// Validasi items per page
+$allowed_per_page = [10, 25, 50, 100, 250];
+if (!in_array($items_per_page, $allowed_per_page)) {
+    $items_per_page = 25;
+}
+
+// Validasi current page
+if ($current_page < 1) {
+    $current_page = 1;
+}
 
 // Check jika ada parameter "show_all" untuk menampilkan semua data
 $show_all = isset($_GET['show_all']) ? true : false;
@@ -172,13 +324,41 @@ if ($show_all) {
     $tanggal_sampai = '';
 }
 
+// Hitung offset untuk query
+$offset = ($current_page - 1) * $items_per_page;
+
+// Ambil total data untuk statistik dan pagination
+$total_records = getTotalResepCount($filter_status, $search, $tanggal_dari, $tanggal_sampai, $filter_kategori, $filter_golongan, $filter_dokter);
+$total_pages = ceil($total_records / $items_per_page);
+
+// Validasi halaman tidak melebihi total
+if ($current_page > $total_pages && $total_pages > 0) {
+    $current_page = $total_pages;
+    $offset = ($current_page - 1) * $items_per_page;
+}
+
 // Ambil data untuk dropdown
 $kategori_obat = getKategoriObat();
 $golongan_obat = getGolonganObat();
+$dokter_list = getDokterList();
 
-// Ambil data resep
-$resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_sampai, $filter_kategori, $filter_golongan);
+// Ambil data resep dengan pagination
+$resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_sampai, $filter_kategori, $filter_golongan, $filter_dokter, $items_per_page, $offset);
+
+// Ambil statistik lengkap (semua data, bukan hanya halaman ini)
+$statistics = getDetailStatistics($filter_status, $search, $tanggal_dari, $tanggal_sampai, $filter_kategori, $filter_golongan, $filter_dokter);
+
+// Function untuk membuat URL pagination
+function buildPaginationUrl($page, $per_page = null) {
+    $params = $_GET;
+    $params['page'] = $page;
+    if ($per_page !== null) {
+        $params['per_page'] = $per_page;
+    }
+    return '?' . http_build_query($params);
+}
 ?>
+
 
 <!DOCTYPE html>
 <html lang="id">
@@ -248,7 +428,7 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
 
-        /* TAMBAHAN: Style untuk info tanggal */
+        /* Style untuk info tanggal */
         .date-info {
             background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
             border: 1px solid #2196f3;
@@ -296,6 +476,58 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
             width: 20px;
             margin-right: 8px;
         }
+
+        /* Pagination styling */
+        .pagination-info {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .per-page-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .page-info {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        .pagination .page-link {
+            color: #667eea;
+        }
+
+        .pagination .page-item.active .page-link {
+            background-color: #667eea;
+            border-color: #667eea;
+        }
+
+        .pagination .page-link:hover {
+            color: #764ba2;
+        }
+
+        .pagination-size-sm .page-link {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .table-pagination-info {
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            border-top: 1px solid #dee2e6;
+            border-radius: 0 0 8px 8px;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -323,7 +555,7 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                     </div>
                 </div>
 
-                <!-- TAMBAHAN: Info Tanggal yang Ditampilkan -->
+                <!-- Info Tanggal yang Ditampilkan -->
                 <div class="date-info">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
@@ -366,12 +598,71 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                     </div>
                 </div>
 
-                <!-- MODIFIKASI: Alert untuk mode tampilan harian -->
+                <!-- Alert untuk mode tampilan harian -->
                 <?php if (!$show_all && $tanggal_dari == $today && $tanggal_sampai == $today): ?>
                 <div class="alert alert-daily" role="alert">
                     <i class="fas fa-info-circle me-2"></i>
                     <strong>Mode Tampilan Harian:</strong> Sistem menampilkan data resep hari ini secara default. 
                     Gunakan filter tanggal atau tombol di atas untuk melihat data periode lain.
+                </div>
+                <?php endif; ?>
+
+                <!-- Debug Section -->
+                <?php if (isset($_GET['debug']) && $_GET['debug'] == '1'): ?>
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-warning">
+                        <h5 class="mb-0"><i class="fas fa-bug"></i> Debug Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Parameter Filter:</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Status:</strong> <?= $filter_status ?: 'Semua' ?></li>
+                                    <li><strong>Dokter:</strong> <?= $filter_dokter ?: 'Semua' ?></li>
+                                    <li><strong>Kategori:</strong> <?= $filter_kategori ?: 'Semua' ?></li>
+                                    <li><strong>Golongan:</strong> <?= $filter_golongan ?: 'Semua' ?></li>
+                                    <li><strong>Tanggal:</strong> <?= $tanggal_dari ?> s/d <?= $tanggal_sampai ?></li>
+                                    <li><strong>Search:</strong> <?= $search ?: 'Kosong' ?></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Hasil Query:</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Total Records:</strong> <?= $total_records ?></li>
+                                    <li><strong>Total Pages:</strong> <?= $total_pages ?></li>
+                                    <li><strong>Current Page:</strong> <?= $current_page ?></li>
+                                    <li><strong>Items Per Page:</strong> <?= $items_per_page ?></li>
+                                    <li><strong>Offset:</strong> <?= $offset ?></li>
+                                    <li><strong>Rows Returned:</strong> <?= mysqli_num_rows($resep_data) ?></li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <?php
+                        // Test query sederhana tanpa filter
+                        $test_sql = "SELECT COUNT(*) as total FROM resep_obat WHERE tgl_peresepan = '$today'";
+                        $test_result = bukaquery($test_sql);
+                        $test_row = mysqli_fetch_array($test_result);
+                        ?>
+                        
+                        <div class="alert alert-info">
+                            <strong>Test Query:</strong> Total resep hari ini tanpa filter: <?= $test_row['total'] ?>
+                        </div>
+                        
+                        <a href="<?= strtok($_SERVER["REQUEST_URI"], '?') ?>?<?= http_build_query(array_merge($_GET, ['debug' => '0'])) ?>" class="btn btn-warning btn-sm">
+                            <i class="fas fa-eye-slash"></i> Sembunyikan Debug
+                        </a>
+                    </div>
+                </div>
+                <?php else: ?>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Jika data tidak tampil atau statistik tidak sesuai, klik 
+                    <a href="<?= strtok($_SERVER["REQUEST_URI"], '?') ?>?<?= http_build_query(array_merge($_GET, ['debug' => '1'])) ?>" class="btn btn-info btn-sm">
+                        <i class="fas fa-bug"></i> Debug Mode
+                    </a> 
+                    untuk melihat detail data.
                 </div>
                 <?php endif; ?>
 
@@ -384,6 +675,20 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 <option value="">Semua Status</option>
                                 <option value="ralan" <?= $filter_status == 'ralan' ? 'selected' : '' ?>>Rawat Jalan</option>
                                 <option value="ranap" <?= $filter_status == 'ranap' ? 'selected' : '' ?>>Rawat Inap</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Dokter</label>
+                            <select name="dokter" class="form-select">
+                                <option value="">Semua Dokter</option>
+                                <?php 
+                                mysqli_data_seek($dokter_list, 0);
+                                while($dok = mysqli_fetch_array($dokter_list)) { 
+                                ?>
+                                <option value="<?= $dok['kd_dokter'] ?>" <?= $filter_dokter == $dok['kd_dokter'] ? 'selected' : '' ?>>
+                                    <?= $dok['nm_dokter'] ?>
+                                </option>
+                                <?php } ?>
                             </select>
                         </div>
                         <div class="col-md-2">
@@ -422,33 +727,38 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                             <label class="form-label">Tanggal Sampai</label>
                             <input type="date" name="tanggal_sampai" class="form-control" value="<?= $tanggal_sampai ?>">
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-8">
                             <label class="form-label">Pencarian</label>
                             <div class="input-group">
-                                <input type="text" name="search" class="form-control" placeholder="No Resep, Dokter..." value="<?= $search ?>">
+                                <input type="text" name="search" class="form-control" placeholder="No Resep, Dokter, Pasien, No RM..." value="<?= $search ?>">
                                 <button type="submit" class="btn btn-primary">
                                     <i class="fas fa-search"></i>
                                 </button>
                             </div>
+                            <small class="form-text text-muted">
+                                <i class="fas fa-info-circle"></i> 
+                                Pencarian: No Resep, Nama Dokter, Nama Pasien, No Rekam Medis
+                            </small>
                         </div>
-                        <div class="col-12">
+                        <div class="col-md-4">
+                            <label class="form-label">&nbsp;</label>
                             <div class="d-flex gap-2">
                                 <button type="submit" class="btn btn-success">
-                                    <i class="fas fa-filter"></i> Filter Data
+                                    <i class="fas fa-filter"></i> Filter
                                 </button>
                                 <a href="?" class="btn btn-secondary">
-                                    <i class="fas fa-refresh"></i> Reset ke Hari Ini
+                                    <i class="fas fa-refresh"></i> Reset
                                 </a>
                                 <div class="btn-group">
                                     <button type="button" class="btn btn-info dropdown-toggle" data-bs-toggle="dropdown">
-                                        <i class="fas fa-download"></i> Export Data
+                                        <i class="fas fa-download"></i> Export
                                     </button>
                                     <ul class="dropdown-menu">
                                         <li><a class="dropdown-item" href="javascript:exportData('excel')">
-                                            <i class="fas fa-file-excel text-success"></i> Export Excel (.xls)
+                                            <i class="fas fa-file-excel text-success"></i> Excel
                                         </a></li>
                                         <li><a class="dropdown-item" href="javascript:exportData('csv')">
-                                            <i class="fas fa-file-csv text-primary"></i> Export CSV (.csv)
+                                            <i class="fas fa-file-csv text-primary"></i> CSV
                                         </a></li>
                                     </ul>
                                 </div>
@@ -457,11 +767,59 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                     </form>
                 </div>
 
+                <!-- Pagination Info -->
+                <div class="pagination-info">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap">
+                        <div class="pagination-controls">
+                            <div class="per-page-selector">
+                                <label class="form-label mb-0">Tampilkan:</label>
+                                <select class="form-select form-select-sm" style="width: auto;" onchange="changePerPage(this.value)">
+                                    <?php foreach ($allowed_per_page as $value): ?>
+                                    <option value="<?= $value ?>" <?= $items_per_page == $value ? 'selected' : '' ?>>
+                                        <?= $value ?> data
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <span class="page-info">per halaman</span>
+                            </div>
+                            
+                            <div class="page-info">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Menampilkan 
+                                <strong><?= number_format(min($offset + 1, $total_records)) ?></strong> 
+                                sampai 
+                                <strong><?= number_format(min($offset + $items_per_page, $total_records)) ?></strong> 
+                                dari 
+                                <strong><?= number_format($total_records) ?></strong> 
+                                total data
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex align-items-center gap-3">
+                            <?php if ($total_records > 0): ?>
+                            <div class="page-info">
+                                Halaman <strong><?= $current_page ?></strong> dari <strong><?= $total_pages ?></strong>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <!-- Quick Jump -->
+                            <?php if ($total_pages > 1): ?>
+                            <div class="d-flex align-items-center gap-2">
+                                <label class="form-label mb-0 small">Ke halaman:</label>
+                                <input type="number" class="form-control form-control-sm" style="width: 80px;" 
+                                       min="1" max="<?= $total_pages ?>" value="<?= $current_page ?>"
+                                       onchange="jumpToPage(this.value)">
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Data Resep -->
                 <div class="card shadow-sm">
-                    <div class="card-body">
+                    <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-hover">
+                            <table class="table table-hover mb-0">
                                 <thead class="table-dark">
                                     <tr>
                                         <th width="5%">No</th>
@@ -477,13 +835,13 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 </thead>
                                 <tbody>
                                     <?php 
-                                    $no = 1;
+                                    $no = $offset + 1;
                                     if (mysqli_num_rows($resep_data) > 0) {
                                         while ($row = mysqli_fetch_array($resep_data)) {
                                             $detail_obat = getDetailObat($row['no_resep']);
                                             $total_resep = getTotalResep($row['no_resep']);
                                             
-                                            // Perbaikan: Tentukan class badge dan icon berdasarkan jenis rawat yang benar
+                                            // Tentukan class badge dan icon berdasarkan jenis rawat yang benar
                                             $badge_class = ($row['jenis_rawat'] == 'Rawat Inap') ? 'rawat-inap' : 'rawat-jalan';
                                             $icon_class = ($row['jenis_rawat'] == 'Rawat Inap') ? 'fa-bed' : 'fa-user-md';
                                     ?>
@@ -612,8 +970,90 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 </tbody>
                             </table>
                         </div>
+                        
+                        <!-- Table Footer with Pagination Info -->
+                        <?php if ($total_records > 0): ?>
+                        <div class="table-pagination-info">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">
+                                    <i class="fas fa-list me-1"></i>
+                                    Menampilkan <?= mysqli_num_rows($resep_data) ?> dari <?= number_format($total_records) ?> total resep
+                                </small>
+                                <small class="text-muted">
+                                    <i class="fas fa-clock me-1"></i>
+                                    Terakhir diperbarui: <?= date('d/m/Y H:i:s') ?>
+                                </small>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
+
+                <!-- Pagination -->
+                <?php if ($total_pages > 1): ?>
+                <div class="d-flex justify-content-center mt-4">
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination pagination-lg">
+                            <!-- First Page -->
+                            <?php if ($current_page > 1): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="<?= buildPaginationUrl(1) ?>" title="Halaman Pertama">
+                                    <i class="fas fa-angle-double-left"></i>
+                                </a>
+                            </li>
+                            <?php endif; ?>
+                            
+                            <!-- Previous Page -->
+                            <?php if ($current_page > 1): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="<?= buildPaginationUrl($current_page - 1) ?>" title="Halaman Sebelumnya">
+                                    <i class="fas fa-angle-left"></i> Sebelumnya
+                                </a>
+                            </li>
+                            <?php endif; ?>
+                            
+                            <!-- Page Numbers -->
+                            <?php
+                            $start_page = max(1, $current_page - 2);
+                            $end_page = min($total_pages, $current_page + 2);
+                            
+                            // Ensure we show at least 5 pages if available
+                            if ($end_page - $start_page < 4) {
+                                if ($start_page == 1) {
+                                    $end_page = min($total_pages, $start_page + 4);
+                                } else {
+                                    $start_page = max(1, $end_page - 4);
+                                }
+                            }
+                            
+                            for ($i = $start_page; $i <= $end_page; $i++):
+                            ?>
+                            <li class="page-item <?= $i == $current_page ? 'active' : '' ?>">
+                                <a class="page-link" href="<?= buildPaginationUrl($i) ?>"><?= $i ?></a>
+                            </li>
+                            <?php endfor; ?>
+                            
+                            <!-- Next Page -->
+                            <?php if ($current_page < $total_pages): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="<?= buildPaginationUrl($current_page + 1) ?>" title="Halaman Selanjutnya">
+                                    Selanjutnya <i class="fas fa-angle-right"></i>
+                                </a>
+                            </li>
+                            <?php endif; ?>
+                            
+                            <!-- Last Page -->
+                            <?php if ($current_page < $total_pages): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="<?= buildPaginationUrl($total_pages) ?>" title="Halaman Terakhir">
+                                    <i class="fas fa-angle-double-right"></i>
+                                </a>
+                            </li>
+                            <?php endif; ?>
+                        </ul>
+                    </nav>
+                </div>
+                <?php endif; ?>
 
                 <!-- Summary Statistics -->
                 <div class="row mt-4">
@@ -623,31 +1063,16 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 <div class="d-flex justify-content-between">
                                     <div>
                                         <h6>Total Resep</h6>
-                                        <h4><?= mysqli_num_rows($resep_data) ?></h4>
+                                        <h4><?= number_format($statistics['total_resep']) ?></h4>
                                     </div>
                                     <i class="fas fa-prescription-bottle-alt fa-2x opacity-75"></i>
                                 </div>
+                                <small class="opacity-75">
+                                    <i class="fas fa-info-circle me-1"></i>Semua data periode
+                                </small>
                             </div>
                         </div>
                     </div>
-                    
-                    <?php
-                    // Reset pointer untuk menghitung statistik
-                    mysqli_data_seek($resep_data, 0);
-                    $total_ralan = 0;
-                    $total_ranap = 0;
-                    $total_diserahkan = 0;
-                    $total_menunggu = 0;
-                    
-                    while ($row = mysqli_fetch_array($resep_data)) {
-                        // Perbaikan: Gunakan jenis_rawat bukan status untuk menghitung
-                        if ($row['jenis_rawat'] == 'Rawat Jalan') $total_ralan++;
-                        else $total_ranap++;
-                        
-                        if ($row['tgl_penyerahan'] != '0000-00-00') $total_diserahkan++;
-                        else $total_menunggu++;
-                    }
-                    ?>
                     
                     <div class="col-md-2">
                         <div class="card bg-success text-white">
@@ -655,10 +1080,13 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 <div class="d-flex justify-content-between">
                                     <div>
                                         <h6>Rawat Jalan</h6>
-                                        <h4><?= $total_ralan ?></h4>
+                                        <h4><?= number_format($statistics['total_ralan']) ?></h4>
                                     </div>
                                     <i class="fas fa-user-md fa-2x opacity-75"></i>
                                 </div>
+                                <small class="opacity-75">
+                                    <?= $statistics['total_resep'] > 0 ? round(($statistics['total_ralan'] / $statistics['total_resep']) * 100, 1) : 0 ?>% dari total
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -669,10 +1097,13 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 <div class="d-flex justify-content-between">
                                     <div>
                                         <h6>Rawat Inap</h6>
-                                        <h4><?= $total_ranap ?></h4>
+                                        <h4><?= number_format($statistics['total_ranap']) ?></h4>
                                     </div>
                                     <i class="fas fa-bed fa-2x opacity-75"></i>
                                 </div>
+                                <small class="opacity-75">
+                                    <?= $statistics['total_resep'] > 0 ? round(($statistics['total_ranap'] / $statistics['total_resep']) * 100, 1) : 0 ?>% dari total
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -683,10 +1114,13 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 <div class="d-flex justify-content-between">
                                     <div>
                                         <h6>Diserahkan</h6>
-                                        <h4><?= $total_diserahkan ?></h4>
+                                        <h4><?= number_format($statistics['total_diserahkan']) ?></h4>
                                     </div>
                                     <i class="fas fa-check-circle fa-2x opacity-75"></i>
                                 </div>
+                                <small class="opacity-75">
+                                    <?= $statistics['total_resep'] > 0 ? round(($statistics['total_diserahkan'] / $statistics['total_resep']) * 100, 1) : 0 ?>% dari total
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -697,36 +1131,44 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                                 <div class="d-flex justify-content-between">
                                     <div>
                                         <h6>Menunggu</h6>
-                                        <h4><?= $total_menunggu ?></h4>
+                                        <h4><?= number_format($statistics['total_menunggu']) ?></h4>
                                     </div>
                                     <i class="fas fa-clock fa-2x opacity-75"></i>
                                 </div>
+                                <small class="opacity-75">
+                                    <?= $statistics['total_resep'] > 0 ? round(($statistics['total_menunggu'] / $statistics['total_resep']) * 100, 1) : 0 ?>% dari total
+                                </small>
                             </div>
                         </div>
                     </div>
 
                     <!-- Filter Status Info -->
-                    <?php if ($filter_kategori || $filter_golongan) { ?>
+                    <?php if ($filter_kategori || $filter_golongan || $filter_dokter): ?>
                     <div class="col-md-2">
                         <div class="card bg-secondary text-white">
                             <div class="card-body">
                                 <div class="text-center">
                                     <h6>Filter Aktif</h6>
-                                    <?php if ($filter_kategori) { 
+                                    <?php if ($filter_dokter): 
+                                        $nama_dokter = getOne("SELECT nm_dokter FROM dokter WHERE kd_dokter = '$filter_dokter'");
+                                    ?>
+                                    <small><i class="fas fa-user-md"></i> <?= $nama_dokter ?></small><br>
+                                    <?php endif; ?>
+                                    <?php if ($filter_kategori): 
                                         $nama_kat = getOne("SELECT nama FROM kategori_barang WHERE kode = '$filter_kategori'");
                                     ?>
                                     <small><i class="fas fa-tag"></i> <?= $nama_kat ?></small><br>
-                                    <?php } ?>
-                                    <?php if ($filter_golongan) { 
+                                    <?php endif; ?>
+                                    <?php if ($filter_golongan): 
                                         $nama_gol = getOne("SELECT nama FROM golongan_barang WHERE kode = '$filter_golongan'");
                                     ?>
                                     <small><i class="fas fa-pills"></i> <?= $nama_gol ?></small>
-                                    <?php } ?>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <?php } ?>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -734,9 +1176,11 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Auto refresh setiap 5 menit
+        // Auto refresh setiap 5 menit (hanya jika di halaman pertama)
         setTimeout(function() {
-            location.reload();
+            if (<?= $current_page ?> === 1) {
+                location.reload();
+            }
         }, 300000);
         
         // Print function
@@ -746,11 +1190,11 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
         
         // Export data function dengan pilihan format
         function exportData(format = 'csv') {
-            // Ambil parameter filter saat ini
             const params = new URLSearchParams(window.location.search);
             params.set('export', format);
+            params.delete('page');
+            params.delete('per_page');
             
-            // Tentukan file export berdasarkan format
             let exportFile = '';
             if (format === 'excel') {
                 exportFile = 'export_resep.php';
@@ -758,78 +1202,33 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                 exportFile = 'export_resep_simple.php';
             }
             
-            // Redirect ke halaman export
             window.open(exportFile + '?' + params.toString(), '_blank');
         }
         
-        // Quick filter functions
-        function filterByKategori(kode_kategori) {
+        // Change items per page
+        function changePerPage(perPage) {
             const url = new URL(window.location.href);
-            url.searchParams.set('kategori', kode_kategori);
-            url.searchParams.delete('golongan'); // Reset golongan filter
+            url.searchParams.set('per_page', perPage);
+            url.searchParams.set('page', 1);
             window.location.href = url.toString();
         }
         
-        function filterByGolongan(kode_golongan) {
-            const url = new URL(window.location.href);
-            url.searchParams.set('golongan', kode_golongan);
-            url.searchParams.delete('kategori'); // Reset kategori filter
-            window.location.href = url.toString();
-        }
-        
-        // TAMBAHAN: Quick date navigation functions
-        function goToToday() {
-            const url = new URL(window.location.href);
-            url.searchParams.delete('tanggal_dari');
-            url.searchParams.delete('tanggal_sampai');
-            url.searchParams.delete('show_all');
-            window.location.href = url.toString();
-        }
-        
-        function goToYesterday() {
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const dateStr = yesterday.toISOString().split('T')[0];
+        // Jump to specific page
+        function jumpToPage(page) {
+            const totalPages = <?= $total_pages ?>;
+            page = parseInt(page);
             
-            const url = new URL(window.location.href);
-            url.searchParams.set('tanggal_dari', dateStr);
-            url.searchParams.set('tanggal_sampai', dateStr);
-            url.searchParams.delete('show_all');
-            window.location.href = url.toString();
+            if (page >= 1 && page <= totalPages) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('page', page);
+                window.location.href = url.toString();
+            } else {
+                alert('Halaman tidak valid. Masukkan nomor halaman antara 1 dan ' + totalPages);
+            }
         }
         
-        function goToThisWeek() {
-            const today = new Date();
-            const monday = new Date(today.setDate(today.getDate() - today.getDay() + 1));
-            const now = new Date();
-            
-            const mondayStr = monday.toISOString().split('T')[0];
-            const todayStr = now.toISOString().split('T')[0];
-            
-            const url = new URL(window.location.href);
-            url.searchParams.set('tanggal_dari', mondayStr);
-            url.searchParams.set('tanggal_sampai', todayStr);
-            url.searchParams.delete('show_all');
-            window.location.href = url.toString();
-        }
-        
-        function goToThisMonth() {
-            const today = new Date();
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-            
-            const firstDayStr = firstDay.toISOString().split('T')[0];
-            const todayStr = today.toISOString().split('T')[0];
-            
-            const url = new URL(window.location.href);
-            url.searchParams.set('tanggal_dari', firstDayStr);
-            url.searchParams.set('tanggal_sampai', todayStr);
-            url.searchParams.delete('show_all');
-            window.location.href = url.toString();
-        }
-        
-        // Show tooltip for long text
+        // Initialize tooltips
         document.addEventListener('DOMContentLoaded', function() {
-            // Initialize tooltips
             var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
             var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
                 return new bootstrap.Tooltip(tooltipTriggerEl, {
@@ -839,63 +1238,153 @@ $resep_data = getResepData($filter_status, $search, $tanggal_dari, $tanggal_samp
                 });
             });
             
-            // Debug: Check if tooltips are initialized
-            console.log('Tooltips initialized:', tooltipList.length);
-            
-            // TAMBAHAN: Display current date info in console
-            const today = new Date().toISOString().split('T')[0];
-            console.log('Current date:', today);
-            console.log('Display mode: Daily view active');
+            console.log('Pagination info:', {
+                currentPage: <?= $current_page ?>,
+                totalPages: <?= $total_pages ?>,
+                itemsPerPage: <?= $items_per_page ?>,
+                totalRecords: <?= $total_records ?>,
+                offset: <?= $offset ?>
+            });
         });
         
-        // TAMBAHAN: Keyboard shortcuts untuk navigasi cepat
+        // Keyboard shortcuts untuk navigasi cepat
         document.addEventListener('keydown', function(e) {
             // Ctrl + T = Today
             if (e.ctrlKey && e.key === 't') {
                 e.preventDefault();
-                goToToday();
+                window.location.href = 'obat.php';
             }
             
             // Ctrl + Y = Yesterday  
             if (e.ctrlKey && e.key === 'y') {
                 e.preventDefault();
-                goToYesterday();
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const dateStr = yesterday.toISOString().split('T')[0];
+                window.location.href = `obat.php?tanggal_dari=${dateStr}&tanggal_sampai=${dateStr}`;
             }
             
             // Ctrl + W = This Week
             if (e.ctrlKey && e.key === 'w') {
                 e.preventDefault();
-                goToThisWeek();
+                const today = new Date();
+                const monday = new Date(today.setDate(today.getDate() - today.getDay() + 1));
+                const now = new Date();
+                const mondayStr = monday.toISOString().split('T')[0];
+                const todayStr = now.toISOString().split('T')[0];
+                window.location.href = `obat.php?tanggal_dari=${mondayStr}&tanggal_sampai=${todayStr}`;
             }
             
             // Ctrl + M = This Month
             if (e.ctrlKey && e.key === 'm') {
                 e.preventDefault();
-                goToThisMonth();
+                const today = new Date();
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                const firstDayStr = firstDay.toISOString().split('T')[0];
+                const todayStr = today.toISOString().split('T')[0];
+                window.location.href = `obat.php?tanggal_dari=${firstDayStr}&tanggal_sampai=${todayStr}`;
+            }
+            
+            // Arrow keys for pagination
+            if (e.altKey && e.key === 'ArrowLeft' && <?= $current_page ?> > 1) {
+                e.preventDefault();
+                window.location.href = '<?= buildPaginationUrl($current_page - 1) ?>';
+            }
+            
+            if (e.altKey && e.key === 'ArrowRight' && <?= $current_page ?> < <?= $total_pages ?>) {
+                e.preventDefault();
+                window.location.href = '<?= buildPaginationUrl($current_page + 1) ?>';
             }
         });
         
-        // TAMBAHAN: Auto-refresh dengan konfirmasi jika ada perubahan data
-        let initialDataCount = <?= mysqli_num_rows($resep_data) ?>;
+        // Auto-refresh dengan konfirmasi jika ada perubahan data
+        let initialDataCount = <?= $total_records ?>;
         
         function smartRefresh() {
-            // Check if user has made any filter changes
             const hasFilters = window.location.search.includes('status=') || 
                               window.location.search.includes('search=') || 
                               window.location.search.includes('kategori=') || 
-                              window.location.search.includes('golongan=');
+                              window.location.search.includes('golongan=') ||
+                              window.location.search.includes('dokter=');
             
-            if (!hasFilters) {
-                // Only auto-refresh if no custom filters are applied
+            if (!hasFilters && <?= $current_page ?> === 1) {
                 location.reload();
             } else {
-                // Show notification that refresh is available
-                console.log('Auto-refresh paused due to active filters. Press F5 to refresh manually.');
+                console.log('Auto-refresh paused due to active filters or not on first page. Press F5 to refresh manually.');
             }
         }
         
         // Update refresh timer
         setTimeout(smartRefresh, 300000); // 5 minutes
+        
+        // Show loading state when navigating
+        function showLoading() {
+            const buttons = document.querySelectorAll('a, button');
+            buttons.forEach(button => {
+                if (button.href && button.href.includes('obat.php')) {
+                    button.addEventListener('click', function() {
+                        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+                        button.disabled = true;
+                    });
+                }
+            });
+        }
+        
+        // Initialize loading states
+        showLoading();
+        
+        // Enhanced pagination with keyboard support
+        document.addEventListener('keydown', function(e) {
+            // Page navigation with Ctrl + Number
+            if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
+                e.preventDefault();
+                const targetPage = parseInt(e.key);
+                if (targetPage <= <?= $total_pages ?>) {
+                    jumpToPage(targetPage);
+                }
+            }
+            
+            // Home and End keys for first/last page
+            if (e.ctrlKey && e.key === 'Home') {
+                e.preventDefault();
+                jumpToPage(1);
+            }
+            
+            if (e.ctrlKey && e.key === 'End') {
+                e.preventDefault();
+                jumpToPage(<?= $total_pages ?>);
+            }
+        });
+        
+        // Smooth scroll to top when changing pages
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        
+        // Add click handlers to pagination links
+        document.querySelectorAll('.pagination .page-link').forEach(link => {
+            link.addEventListener('click', function() {
+                setTimeout(scrollToTop, 100);
+            });
+        });
+        
+        // Quick pagination info display
+        function displayPaginationShortcuts() {
+            console.log('=== PAGINATION SHORTCUTS ===');
+            console.log('Ctrl + T: Hari Ini');
+            console.log('Ctrl + Y: Kemarin');
+            console.log('Ctrl + W: Minggu Ini');
+            console.log('Ctrl + M: Bulan Ini');
+            console.log('Alt + ←: Halaman Sebelumnya');
+            console.log('Alt + →: Halaman Selanjutnya');
+            console.log('Ctrl + 1-9: Langsung ke halaman 1-9');
+            console.log('Ctrl + Home: Halaman Pertama');
+            console.log('Ctrl + End: Halaman Terakhir');
+            console.log('=============================');
+        }
+        
+        // Display shortcuts on load
+        displayPaginationShortcuts();
     </script>
 </body>
 </html>
